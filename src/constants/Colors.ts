@@ -34,6 +34,7 @@ export const Colores = {
     // Elementos de UI
     separator: '#eee',        // Líneas divisorias sutiles
     shadow: '#000',           // Color de la sombra (Elevation)
+    danger: '#d32f2f',        // Color semántico para acciones negativas
     tint: tintColorLight,     // Color de acento principal (Botones activos, links)
     buttonUnselected: '#e0e0e0', // Fondo de botones inactivos
     
@@ -42,11 +43,10 @@ export const Colores = {
 
     // Colores de Estado (Lógica de Negocio)
     estados: {
-      normal: '#607D8B',      // Gris Azulado
-      franco: '#FFD700',      // Dorado
-      vacaciones: '#2196F3',  // Azul Material
-      extra: '#FF5722',       // Naranja Intenso
-      textoFranco: '#B7950B', // Dorado oscuro (para leerse sobre blanco)
+      Normal: '#607D8B',      // Gris Azulado
+      Franco: '#B7950B',      // Dorado
+      Vacaciones: '#2196F3',  // Azul Material
+      Extra: '#FF5722',       // Naranja Intenso
     }
   },
 
@@ -70,6 +70,7 @@ export const Colores = {
     // Elementos de UI
     separator: '#444',        // Líneas divisorias más oscuras
     shadow: '#000',           // Sombra (se nota poco en dark mode, pero está)
+    danger: '#ef5350',        // Color semántico para acciones negativas
     tint: tintColorDark,      // En modo oscuro, el acento suele ser blanco o el mismo azul
     buttonUnselected: '#444', // Botones inactivos oscuros
 
@@ -78,11 +79,10 @@ export const Colores = {
 
     // Colores de Estado (Adaptados para contrastar con fondo negro)
     estados: {
-      normal: '#90A4AE',      // Gris más claro
-      franco: '#FFD700',      // El dorado brilla bien sobre negro
-      vacaciones: '#64B5F6',  // Azul más celeste
-      extra: '#FF8A65',       // Naranja salmón
-      textoFranco: '#FFD700', 
+      Normal: '#90A4AE',      // Gris más claro
+      Franco: '#FFD700',      // El dorado brilla bien sobre negro
+      Vacaciones: '#64B5F6',  // Azul más celeste
+      Extra: '#FF8A65',       // Naranja salmón
     }
   },
 };

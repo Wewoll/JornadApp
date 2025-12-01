@@ -1,83 +1,78 @@
 /**
  * src/components/JornadaCard.tsx
  * Componente de Presentación (Dumb Component).
- * * Su única responsabilidad es RECIBIR datos y MOSTRARLOS bonitos.
- * No modifica datos, no llama a APIs, no tiene estado complejo.
+ *
+ * Responsabilidad:
+ * Renderizar la información visual de una jornada individual.
+ * Este componente no gestiona estado ni lógica de negocio, solo recibe datos
+ * y emite eventos de interacción (onPress).
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, useColorScheme, TouchableOpacity } from 'react-native';
 import { Jornada, TipoJornada } from '../models/Jornada';
 import { Colores } from '../constants/Colors';
 
-// DEFINICIÓN DE PROPS (El Contrato)
-// Esto le dice al componente padre: "Si quieres usarme, dame un objeto 'item' de tipo Jornada"
+/**
+ * Props del componente JornadaCard.
+ * @param item Objeto con los datos de la jornada a mostrar.
+ * @param onPress Callback que se ejecuta al interactuar con la tarjeta (ej: para editar).
+ */
 interface JornadaCardProps {
   item: Jornada;
+  onPress: () => void;
 }
 
-export const JornadaCard = ({ item }: JornadaCardProps) => {
+export const JornadaCard = ({ item, onPress }: JornadaCardProps) => {
   
-  // 1. DETECCIÓN DE TEMA (Hooks)
-  // Preguntamos al sistema operativo si estamos en modo oscuro
+  // Detección del tema del sistema (Claro/Oscuro) para aplicar la paleta correcta.
   const theme = useColorScheme();
   const esOscuro = theme === 'dark';
-  // Cargamos la paleta correspondiente
   const coloresActuales = esOscuro ? Colores.dark : Colores.light;
 
-  // 2. LÓGICA DE VISUALIZACIÓN (Helpers)
-  // Estas funciones encapsulan la lógica de "qué color corresponde a qué tipo".
-  // Es como tener funciones 'private' en una clase Java.
-  
+  /**
+   * Obtiene el color hexadecimal asociado al tipo de jornada.
+   * Utiliza un mapeo directo basado en que las claves de 'Colors.ts'
+   * coinciden con los valores del tipo 'TipoJornada'.
+   */
   const getColorPorTipo = (tipo: TipoJornada) => {
-    switch (tipo) {
-      case 'Vacaciones': return coloresActuales.estados.vacaciones;
-      case 'Franco': return coloresActuales.estados.franco;
-      case 'Extra': return coloresActuales.estados.extra;
-      case 'Normal':
-      default: return coloresActuales.estados.normal;
-    }
+    // Acceso directo al diccionario de colores por clave.
+    // Se utiliza casting para flexibilidad, asumiendo consistencia en Colors.ts.
+    return (coloresActuales.estados as any)[tipo] || coloresActuales.estados.Normal;
   };
 
-  // Lógica especial para que el texto 'Franco' se lea bien sobre fondo blanco
-  const getColorTextoPorTipo = (tipo: TipoJornada) => {
-    if (tipo === 'Franco' && !esOscuro) {
-        return coloresActuales.estados.textoFranco;
-    }
-    return getColorPorTipo(tipo);
-  };
+  // Pre-cálculo de estilos dinámicos
+  const colorPrincipal = getColorPorTipo(item.tipo);
 
-  // Calculamos los colores antes de renderizar
-  const colorBorde = getColorPorTipo(item.tipo);
-  const colorTexto = getColorTextoPorTipo(item.tipo);
-
-  // 3. RENDERIZADO (UI)
   return (
-    <View style={[
-      styles.card, 
-      { 
-        // Estilos dinámicos: Se mezclan con los estáticos (styles.card)
-        backgroundColor: coloresActuales.cardBackground, 
-        borderLeftColor: colorBorde, 
-        borderLeftWidth: 6 
-      }
-    ]}>
+    <TouchableOpacity 
+      onPress={onPress}
+      activeOpacity={0.7} // Feedback visual nativo al tocar
+      style={[
+        styles.card, 
+        { 
+          backgroundColor: coloresActuales.cardBackground, 
+          borderLeftColor: colorPrincipal, 
+          borderLeftWidth: 6 
+        }
+      ]}
+    >
       
-      {/* CABECERA: Fecha y Tipo */}
+      {/* Encabezado: Fecha y Etiqueta de Tipo */}
       <View style={[styles.filaEncabezado, { borderBottomColor: coloresActuales.separator }]}>
         <Text style={[styles.textoFecha, { color: coloresActuales.text }]}>
           {item.fecha}
         </Text>
-        <Text style={[styles.textoTipo, { color: colorTexto }]}>
+        <Text style={[styles.textoTipo, { color: colorPrincipal }]}>
           {item.tipo}
         </Text>
       </View>
       
-      {/* CUERPO: Las Horas */}
+      {/* Cuerpo: Desglose de Horas */}
       <View style={styles.filaDetalle}>
         <Text style={[styles.label, { color: coloresActuales.textSecondary }]}>
             Normales: <Text style={[styles.valor, { color: coloresActuales.text }]}>
-                 {/* OPERADOR TERNARIO: Si es > 0 muestra el número, sino un guion */}
+                 {/* Visualización condicional: Guion '-' si el valor es 0 */}
                  {item.horasNormales > 0 ? item.horasNormales : '-'}
                </Text>
         </Text>
@@ -93,8 +88,7 @@ export const JornadaCard = ({ item }: JornadaCardProps) => {
         </Text>
       </View>
 
-      {/* PIE: Observaciones (Renderizado Condicional) */}
-      {/* Solo se dibuja este bloque si item.observaciones tiene texto (no es null ni vacío) */}
+      {/* Pie: Observaciones (Renderizado opcional) */}
       {item.observaciones && (
         <Text style={[
             styles.observaciones, 
@@ -106,18 +100,17 @@ export const JornadaCard = ({ item }: JornadaCardProps) => {
             Nota: {item.observaciones}
         </Text>
       )}
-    </View>
+    </TouchableOpacity>
   );
 };
 
-// 4. ESTILOS ESTÁTICOS (Layout)
-// Todo lo que sea estructura y dimensiones va aquí para mejor rendimiento
+// Estilos estáticos de estructura y layout
 const styles = StyleSheet.create({
   card: {
     padding: 16,
     marginBottom: 12,
     borderRadius: 8,
-    // Sombras
+    // Configuración de sombras (Elevation para Android, Shadow para iOS)
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

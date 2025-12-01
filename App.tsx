@@ -1,7 +1,7 @@
 /**
  * App.tsx
  * Punto de entrada principal de la aplicación JornadApp.
- * Se encarga de orquestar la lista de jornadas, el modal de carga y la configuración visual.
+ * Orquesta la gestión de estado (CRUD), persistencia visual y navegación básica.
  */
 
 import { useState, useEffect } from 'react';
@@ -14,15 +14,14 @@ import {
   View, 
   TouchableOpacity, 
   Modal,
-  Platform 
+  Platform,
+  Alert
 } from 'react-native';
 
-// Librerías de terceros y utilidades
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons'; 
 import * as NavigationBar from 'expo-navigation-bar';
 
-// Nuestros componentes y modelos (MVC)
 import { Jornada } from './src/models/Jornada';
 import { JornadaCard } from './src/components/JornadaCard';
 import { Colores } from './src/constants/Colors';
@@ -30,139 +29,176 @@ import { JornadaForm } from './src/components/JornadaForm';
 
 /**
  * MainContent
- * Contiene toda la lógica visual y de estado. 
- * Está separado del 'App' principal para poder consumir el contexto de SafeArea.
+ * Componente contenedor que consume el contexto de SafeArea.
+ * Maneja la lógica de negocio y el estado global de la lista de jornadas.
  */
 function MainContent() {
-  // --- 1. HOOKS Y CONFIGURACIÓN ---
-  
-  // 'insets' nos dice cuánto miden las barras del sistema (Notch, Isla dinámica, Barra Home)
+  // --- CONFIGURACIÓN DE ENTORNO ---
   const insets = useSafeAreaInsets();
-  
-  // Detectamos si el usuario usa Modo Oscuro o Claro
   const colorScheme = useColorScheme();
   const esOscuro = colorScheme === 'dark';
-  // Cargamos la paleta de colores correspondiente
   const colores = esOscuro ? Colores.dark : Colores.light;
   
-  // --- 2. ESTADOS (Memoria de la Pantalla) ---
+  // --- ESTADO DE LA APLICACIÓN ---
   
-  // Controla si la ventana emergente (Modal) se ve o no
+  // Visibilidad del modal de carga/edición
   const [modalVisible, setModalVisible] = useState(false);
 
-  // Lista de jornadas. Inicializamos con un dato de prueba.
-  // En el futuro, esto vendrá de una base de datos o Google Sheets.
+  // Jornada seleccionada para edición. 
+  // null indica que se está creando una jornada nueva.
+  const [jornadaSeleccionada, setJornadaSeleccionada] = useState<Jornada | null>(null);
+
+  // Fuente de verdad de los datos (Lista de jornadas)
   const [jornadas, setJornadas] = useState<Jornada[]>([
-    { id: '2025-01-01', fecha: '01/01/2025', horasNormales: 8, horas50: 0, horas100: 0, tipo: 'Normal' },
+    { id: '1', fecha: '01/01/2025', horasNormales: 8, horas50: 0, horas100: 0, tipo: 'Normal' },
   ]);
 
-  // --- 3. EFECTOS (Interacción con el Sistema Operativo) ---
+  // --- EFECTOS SECUNDARIOS ---
   
-  // Este bloque se ejecuta cuando cambia el modo (esOscuro)
+  // Ajuste de la barra de navegación de Android para coincidir con el tema
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      // Configuramos la barra de navegación inferior de Android
-      // Chequeo de seguridad: Solo Android 8.0 (API 26) o superior soporta cambiar iconos
-      if (Platform.Version >= 26) {
-        NavigationBar.setButtonStyleAsync(esOscuro ? "light" : "dark");
-      }
+    if (Platform.OS === 'android' && Platform.Version >= 26) {
+      NavigationBar.setButtonStyleAsync(esOscuro ? "light" : "dark");
     }
   }, [esOscuro]);
 
-  // --- 4. FUNCIONES LÓGICAS ---
+  // --- LÓGICA DE NEGOCIO (CRUD) ---
 
   /**
-   * Recibe los datos del formulario, crea el objeto Jornada y actualiza la lista.
-   * @param datosNuevos Objeto con la info que llenó el usuario
+   * Procesa el guardado de una jornada.
+   * Determina automáticamente si es una creación (Create) o actualización (Update)
+   * basándose en la existencia de 'jornadaSeleccionada'.
+   * @param datosNuevos Objeto con los valores provenientes del formulario.
    */
-  const agregarJornada = (datosNuevos: any) => {
-    const nuevaJornada: Jornada = {
-      id: Date.now().toString(), // Usamos la hora actual como ID único temporal
-      fecha: datosNuevos.fecha,
-      horasNormales: datosNuevos.horasNormales,
-      horas50: datosNuevos.horas50,
-      horas100: datosNuevos.horas100,
-      tipo: datosNuevos.tipo,
-      observaciones: datosNuevos.observaciones
-    };
+  const guardarJornada = (datosNuevos: any) => {
+    if (jornadaSeleccionada) {
+      // UPDATE: Busamos el elemento por ID y actualizamos sus propiedades
+      const listaActualizada = jornadas.map((j) => {
+        if (j.id === jornadaSeleccionada.id) {
+          return { ...j, ...datosNuevos };
+        }
+        return j;
+      });
+      setJornadas(listaActualizada);
 
-    // INMUTABILIDAD: No hacemos push. Creamos un array nuevo poniendo lo nuevo primero.
-    setJornadas([nuevaJornada, ...jornadas]);
+    } else {
+      // CREATE: Generamos ID temporal y agregamos al inicio de la lista
+      const nuevaJornada: Jornada = {
+        id: Date.now().toString(),
+        ...datosNuevos
+      };
+      setJornadas([nuevaJornada, ...jornadas]);
+    }
     
-    // Cerramos el modal una vez guardado
-    setModalVisible(false);
+    cerrarModal();
   };
 
-  // --- 5. RENDERIZADO (UI) ---
+  /**
+   * Elimina la jornada seleccionada de la lista tras confirmación.
+   * DELETE operation.
+   */
+  const eliminarJornada = () => {
+    if (!jornadaSeleccionada) return;
+
+    Alert.alert(
+      "Eliminar Jornada",
+      "¿Estás seguro? Esta acción no se puede deshacer.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { 
+          text: "Eliminar", 
+          style: "destructive",
+          onPress: () => {
+            const listaFiltrada = jornadas.filter(j => j.id !== jornadaSeleccionada.id);
+            setJornadas(listaFiltrada);
+            cerrarModal();
+          }
+        }
+      ]
+    );
+  };
+
+  // --- GESTIÓN DE UI ---
+
+  const abrirParaCrear = () => {
+    setJornadaSeleccionada(null);
+    setModalVisible(true);
+  };
+
+  const abrirParaEditar = (item: Jornada) => {
+    setJornadaSeleccionada(item);
+    setModalVisible(true);
+  };
+
+  const cerrarModal = () => {
+    setModalVisible(false);
+    setJornadaSeleccionada(null);
+  };
+
+  // --- RENDERIZADO ---
   return (
-    // Contenedor principal. Usa el color de fondo dinámico (Negro o Gris claro)
     <View style={[styles.container, { backgroundColor: colores.background }]}>
       
-      {/* HEADER: Le damos padding arriba (insets.top) para que el texto no quede debajo de la hora/cámara */}
       <View style={{ paddingTop: insets.top }}>
         <Text style={[styles.titulo, { color: colores.text }]}>JornadApp</Text>
       </View>
       
-      {/* LISTA: Componente optimizado para mostrar muchos elementos */}
       <FlatList
         data={jornadas}
-        renderItem={({ item }) => <JornadaCard item={item} />}
+        renderItem={({ item }) => (
+          <JornadaCard 
+            item={item} 
+            onPress={() => abrirParaEditar(item)} 
+          />
+        )}
         keyExtractor={item => item.id}
-        // Le damos espacio abajo (paddingBottom) para que el último elemento no quede tapado por el botón (+)
         contentContainerStyle={[styles.lista, { paddingBottom: 100 + insets.bottom }]}
       />
 
-      {/* MODAL: La ventana emergente para cargar datos */}
       <Modal
-        animationType="slide"      // Aparece deslizándose desde abajo
-        transparent={true}         // Permite ver el fondo oscurecido atrás
-        visible={modalVisible}     // Estado que controla si se ve o no
-        onRequestClose={() => setModalVisible(false)} // Qué pasa si aprietan "Atrás" en Android
-        statusBarTranslucent={true} // Permite que el oscurecimiento cubra la barra de estado superior
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={cerrarModal}
+        statusBarTranslucent={true}
       >
-        {/* Fondo semitransparente */}
         <View style={styles.modalOverlay}>
-          {/* Caja de contenido */}
           <View style={[
             styles.modalContent, 
             { 
               backgroundColor: colores.cardBackground,
-              // En modo oscuro agregamos un borde gris para separar del fondo negro
               borderWidth: esOscuro ? 1 : 0,
               borderColor: esOscuro ? '#444' : 'transparent',
             }
           ]}>
-            <Text style={[styles.modalTitulo, { color: colores.text }]}>Nueva Jornada</Text>
+            <Text style={[styles.modalTitulo, { color: colores.text }]}>
+              {jornadaSeleccionada ? 'Editar Jornada' : 'Nueva Jornada'}
+            </Text>
             
-            {/* Componente del Formulario */}
             <JornadaForm 
-              onCerrar={() => setModalVisible(false)} 
-              onGuardar={agregarJornada}              
+              onCerrar={cerrarModal} 
+              onGuardar={guardarJornada}
+              // Pasamos props opcionales para el modo edición
+              jornadaInicial={jornadaSeleccionada}
+              onEliminar={jornadaSeleccionada ? eliminarJornada : undefined}
             />
 
           </View>
         </View>
       </Modal>
 
-      {/* BOTÓN FLOTANTE (FAB) */}
       <TouchableOpacity 
-        // Posición absoluta. 'bottom' se ajusta dinámicamente según la barra de gestos del celular
         style={[styles.fab, { backgroundColor: colores.tint, bottom: 30 + insets.bottom }]} 
-        onPress={() => setModalVisible(true)}
+        onPress={abrirParaCrear}
       >
         <Ionicons name="add" size={30} color={colores.textOnPrimary} />
       </TouchableOpacity>
       
-      {/* Controla el color de la hora y batería (Blanco o Negro) */}
       <StatusBar style={esOscuro ? "light" : "dark"} />
     </View>
   );
 }
 
-/**
- * App (Entry Point)
- * Su única función es proveer el contexto de "SafeArea" a toda la aplicación.
- */
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -171,7 +207,6 @@ export default function App() {
   );
 }
 
-// Estilos estáticos (Layout y dimensiones que no cambian con el tema)
 const styles = StyleSheet.create({
   container: { flex: 1 },
   titulo: { 
@@ -190,7 +225,6 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     justifyContent: 'center', 
     alignItems: 'center',
-    // Sombras para darle profundidad
     elevation: 5, 
     shadowColor: '#000', 
     shadowOffset: { width: 0, height: 2 }, 
