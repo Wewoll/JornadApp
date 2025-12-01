@@ -6,10 +6,14 @@
  * desaparece al compilarse (es solo para control de errores en tiempo de desarrollo).
  */
 
-// Definimos un "Union Type".
-// Es similar a un ENUM en Java/C, pero más flexible.
-// La variable 'tipo' SOLO podrá contener una de estas cuatro cadenas exactas.
-export type TipoJornada = 'Normal' | 'Franco' | 'Vacaciones' | 'Extra';
+// 1. Definimos la LISTA MAESTRA (Array de Strings)
+// "as const" es el truco mágico. Le dice a TS: 
+// "Este array es de SOLO LECTURA y sus valores son LITERALES, no strings genéricos".
+export const TIPOS_JORNADA = ['Normal', 'Franco', 'Vacaciones', 'Extra'] as const;
+
+// 2. Derivamos el TIPO automáticamente desde el array
+// Significa: "El tipo TipoJornada es cualquiera de los valores que estén dentro de TIPOS_JORNADA"
+export type TipoJornada = typeof TIPOS_JORNADA[number];
 
 export interface Jornada {
   // Identificador único (Primary Key). 
