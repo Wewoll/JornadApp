@@ -1,7 +1,11 @@
 /**
  * App.tsx
  * Punto de entrada principal de la aplicación JornadApp.
- * Orquesta la gestión de estado (CRUD), persistencia visual y navegación básica.
+ * * Responsabilidades:
+ * 1. Gestión del Estado Global de la aplicación (Lista de jornadas, UI de carga).
+ * 2. Orquestación del flujo CRUD (Create, Read, Update, Delete) conectado al servicio API.
+ * 3. Configuración de la interfaz nativa (SafeArea, StatusBar, NavigationBar).
+ * 4. Renderizado de la lista principal y el modal de edición.
  */
 
 import { useState, useEffect } from 'react';
@@ -15,7 +19,8 @@ import {
   TouchableOpacity, 
   Modal,
   Platform,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,14 +31,14 @@ import { Jornada } from './src/models/Jornada';
 import { JornadaCard } from './src/components/JornadaCard';
 import { Colores } from './src/constants/Colors';
 import { JornadaForm } from './src/components/JornadaForm';
+import { ApiService } from './src/services/ApiService';
 
 /**
- * MainContent
- * Componente contenedor que consume el contexto de SafeArea.
- * Maneja la lógica de negocio y el estado global de la lista de jornadas.
+ * Componente interno que contiene la lógica de negocio y visual.
+ * Se separa del componente App principal para poder consumir el contexto de SafeAreaProvider.
  */
 function MainContent() {
-  // --- CONFIGURACIÓN DE ENTORNO ---
+  // --- CONFIGURACIÓN DE ENTORNO Y TEMA ---
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const esOscuro = colorScheme === 'dark';
@@ -41,120 +46,173 @@ function MainContent() {
   
   // --- ESTADO DE LA APLICACIÓN ---
   
-  // Visibilidad del modal de carga/edición
+  // Controla la visibilidad del modal de formulario
   const [modalVisible, setModalVisible] = useState(false);
-
-  // Jornada seleccionada para edición. 
-  // null indica que se está creando una jornada nueva.
-  const [jornadaSeleccionada, setJornadaSeleccionada] = useState<Jornada | null>(null);
-
-  // Fuente de verdad de los datos (Lista de jornadas)
-  const [jornadas, setJornadas] = useState<Jornada[]>([
-    { id: '1', fecha: '01/01/2025', horasNormales: 8, horas50: 0, horas100: 0, tipo: 'Normal' },
-  ]);
-
-  // --- EFECTOS SECUNDARIOS ---
   
-  // Ajuste de la barra de navegación de Android para coincidir con el tema
+  // Almacena la jornada que se está editando actualmente. 
+  // Si es null, indica que se está creando una nueva entrada.
+  const [jornadaSeleccionada, setJornadaSeleccionada] = useState<Jornada | null>(null);
+  
+  // Fuente de verdad de los datos mostrados en la lista.
+  const [jornadas, setJornadas] = useState<Jornada[]>([]); 
+  
+  // Indicador de actividad de red (Spinner)
+  const [cargando, setCargando] = useState(false);
+
+  // --- EFECTOS SECUNDARIOS (LIFECYCLE) ---
+  
+  // Sincroniza el estilo de la barra de navegación de Android con el tema de la app
   useEffect(() => {
     if (Platform.OS === 'android' && Platform.Version >= 26) {
       NavigationBar.setButtonStyleAsync(esOscuro ? "light" : "dark");
     }
   }, [esOscuro]);
 
+  // Carga inicial de datos al montar el componente
+  useEffect(() => {
+    cargarDatos();
+  }, []);
+
+  /**
+   * Obtiene la lista actualizada de jornadas desde el backend.
+   * Gestiona el estado de carga para feedback visual.
+   */
+  const cargarDatos = async () => {
+    setCargando(true);
+    const datosNube = await ApiService.fetchJornadas();
+    setJornadas(datosNube);
+    setCargando(false);
+  };
+
   // --- LÓGICA DE NEGOCIO (CRUD) ---
 
   /**
-   * Procesa el guardado de una jornada.
-   * Determina automáticamente si es una creación (Create) o actualización (Update)
-   * basándose en la existencia de 'jornadaSeleccionada'.
-   * @param datosNuevos Objeto con los valores provenientes del formulario.
+   * Procesa la solicitud de guardar (Crear o Actualizar) una jornada.
+   * Realiza la operación en el backend y actualiza el estado local optimistamente si hay éxito.
+   * * @param datosNuevos - Objeto parcial con los valores del formulario.
    */
-  const guardarJornada = (datosNuevos: any) => {
+  const guardarJornada = async (datosNuevos: any) => {
+    // Cerramos el modal inmediatamente para mejorar la percepción de velocidad
+    cerrarModal();
+    setCargando(true);
+
     if (jornadaSeleccionada) {
-      // UPDATE: Busamos el elemento por ID y actualizamos sus propiedades
-      const listaActualizada = jornadas.map((j) => {
-        if (j.id === jornadaSeleccionada.id) {
-          return { ...j, ...datosNuevos };
-        }
-        return j;
-      });
-      setJornadas(listaActualizada);
+      // CASO UPDATE: Existe una jornada seleccionada, actualizamos sus datos.
+      const jornadaEditada = { ...jornadaSeleccionada, ...datosNuevos };
+      
+      const exito = await ApiService.sendAction('update', jornadaEditada);
+      
+      if (exito) {
+        // Actualización local del estado (Inmutabilidad: map devuelve un nuevo array)
+        setJornadas(prev => prev.map(j => j.id === jornadaSeleccionada.id ? jornadaEditada : j));
+      } else {
+        Alert.alert("Error de Sincronización", "No se pudo actualizar el registro en la nube.");
+      }
 
     } else {
-      // CREATE: Generamos ID temporal y agregamos al inicio de la lista
+      // CASO CREATE: No hay selección, creamos un nuevo registro.
       const nuevaJornada: Jornada = {
-        id: Date.now().toString(),
+        id: Date.now().toString(), // ID temporal basado en timestamp
         ...datosNuevos
       };
-      setJornadas([nuevaJornada, ...jornadas]);
+
+      const exito = await ApiService.sendAction('create', nuevaJornada);
+
+      if (exito) {
+        // Inserción local al inicio de la lista
+        setJornadas(prev => [nuevaJornada, ...prev]);
+      } else {
+        Alert.alert("Error de Sincronización", "No se pudo guardar el registro en la nube.");
+      }
     }
-    
-    cerrarModal();
+    setCargando(false);
   };
 
   /**
-   * Elimina la jornada seleccionada de la lista tras confirmación.
-   * DELETE operation.
+   * Elimina la jornada seleccionada tras confirmación del usuario.
+   * Ejecuta la eliminación en el backend y actualiza la lista local.
    */
   const eliminarJornada = () => {
     if (!jornadaSeleccionada) return;
 
     Alert.alert(
       "Eliminar Jornada",
-      "¿Estás seguro? Esta acción no se puede deshacer.",
+      "¿Estás seguro de que deseas eliminar este registro? Esta acción no se puede deshacer.",
       [
         { text: "Cancelar", style: "cancel" },
         { 
           text: "Eliminar", 
           style: "destructive",
-          onPress: () => {
-            const listaFiltrada = jornadas.filter(j => j.id !== jornadaSeleccionada.id);
-            setJornadas(listaFiltrada);
+          onPress: async () => {
             cerrarModal();
+            setCargando(true);
+
+            const exito = await ApiService.sendAction('delete', jornadaSeleccionada);
+
+            if (exito) {
+              // Eliminación local (Filter devuelve un nuevo array sin el elemento)
+              setJornadas(prev => prev.filter(j => j.id !== jornadaSeleccionada.id));
+            } else {
+              Alert.alert("Error", "No se pudo eliminar el registro de la nube.");
+            }
+            setCargando(false);
           }
         }
       ]
     );
   };
 
-  // --- GESTIÓN DE UI ---
+  // --- GESTIÓN DE INTERFAZ DE USUARIO ---
 
   const abrirParaCrear = () => {
-    setJornadaSeleccionada(null);
+    setJornadaSeleccionada(null); // Limpiar selección indica "Modo Creación"
     setModalVisible(true);
   };
 
   const abrirParaEditar = (item: Jornada) => {
-    setJornadaSeleccionada(item);
+    setJornadaSeleccionada(item); // Establecer selección indica "Modo Edición"
     setModalVisible(true);
   };
 
   const cerrarModal = () => {
     setModalVisible(false);
-    setJornadaSeleccionada(null);
+    setJornadaSeleccionada(null); // Resetear selección por seguridad
   };
 
   // --- RENDERIZADO ---
   return (
     <View style={[styles.container, { backgroundColor: colores.background }]}>
       
+      {/* Encabezado con ajuste de Safe Area superior */}
       <View style={{ paddingTop: insets.top }}>
         <Text style={[styles.titulo, { color: colores.text }]}>JornadApp</Text>
       </View>
       
-      <FlatList
-        data={jornadas}
-        renderItem={({ item }) => (
-          <JornadaCard 
-            item={item} 
-            onPress={() => abrirParaEditar(item)} 
-          />
-        )}
-        keyExtractor={item => item.id}
-        contentContainerStyle={[styles.lista, { paddingBottom: 100 + insets.bottom }]}
-      />
+      {/* Renderizado Condicional:
+        Muestra Spinner de carga si está cargando y no hay datos.
+        Muestra la Lista si ya hay datos cargados.
+      */}
+      {cargando && jornadas.length === 0 ? (
+        <View style={styles.centro}>
+          <ActivityIndicator size="large" color={colores.tint} />
+          <Text style={{ color: colores.textSecondary, marginTop: 10 }}>Sincronizando...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={jornadas}
+          renderItem={({ item }) => (
+            <JornadaCard item={item} onPress={() => abrirParaEditar(item)} />
+          )}
+          keyExtractor={item => item.id}
+          // Padding inferior para evitar que el FAB cubra el último elemento
+          contentContainerStyle={[styles.lista, { paddingBottom: 100 + insets.bottom }]}
+          // Pull-to-refresh nativo
+          refreshing={cargando}
+          onRefresh={cargarDatos}
+        />
+      )}
 
+      {/* Modal de Formulario (Edición / Creación) */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -178,7 +236,6 @@ function MainContent() {
             <JornadaForm 
               onCerrar={cerrarModal} 
               onGuardar={guardarJornada}
-              // Pasamos props opcionales para el modo edición
               jornadaInicial={jornadaSeleccionada}
               onEliminar={jornadaSeleccionada ? eliminarJornada : undefined}
             />
@@ -187,6 +244,7 @@ function MainContent() {
         </View>
       </Modal>
 
+      {/* Botón de Acción Flotante (FAB) para agregar */}
       <TouchableOpacity 
         style={[styles.fab, { backgroundColor: colores.tint, bottom: 30 + insets.bottom }]} 
         onPress={abrirParaCrear}
@@ -194,11 +252,16 @@ function MainContent() {
         <Ionicons name="add" size={30} color={colores.textOnPrimary} />
       </TouchableOpacity>
       
+      {/* Control de barra de estado del sistema */}
       <StatusBar style={esOscuro ? "light" : "dark"} />
     </View>
   );
 }
 
+/**
+ * Componente Raíz.
+ * Provee el contexto de SafeArea para manejar notches e islas dinámicas.
+ */
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -207,6 +270,7 @@ export default function App() {
   );
 }
 
+// Estilos estáticos de layout y estructura
 const styles = StyleSheet.create({
   container: { flex: 1 },
   titulo: { 
@@ -217,6 +281,11 @@ const styles = StyleSheet.create({
     marginTop: 10 
   },
   lista: { paddingHorizontal: 16 },
+  centro: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   fab: {
     position: 'absolute', 
     right: 20, 
